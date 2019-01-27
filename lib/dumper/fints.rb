@@ -35,15 +35,27 @@ class Dumper
     end
 
     def payee_name(transaction)
-      parse_transaction_at(32, transaction).try(:strip)
+      if !transaction.name.empty?
+        name = transaction.name
+      else
+        name = transaction.sub_fields["21"].try(:strip)
+      end
+      #puts "NAME: #{name}"
+      name
     end
 
     def payee_iban(transaction)
-      parse_transaction_at(31, transaction)
+      transaction.iban
     end
 
     def memo(transaction)
-      parse_transaction_at(20, transaction).try(:strip)
+      if transaction.sepa["SVWZ"]
+        data = transaction.sepa["SVWZ"] + ' (' + transaction.description + ')'
+      else
+        data = transaction.sub_fields.values.join(' ').try(:strip)
+      end
+      #puts "MEMO: #{data}"
+      data
     end
 
     def amount(transaction)
@@ -61,43 +73,12 @@ class Dumper
       memo = memo(transaction)
       return nil unless memo
 
-      memo.include?('Atm') || memo.include?('Bargeld')
+      memo.include?('Atm') || memo.include?('Bargeld') || memo.include?('BARGELDAUSZAHLUNG')
     end
 
     def import_id(transaction)
-      data = [transaction_type(transaction),
-              transaction.date,
-              transaction.amount,
-              transaction.funds_code,
-              transaction.reference.try(:downcase),
-              payee_iban(transaction),
-              payee_name(transaction).try(:downcase),
-              @iban].join
-
-      Digest::MD5.hexdigest(data)
+      return Digest::MD5.hexdigest(transaction.sha)
     end
 
-    def transaction_type(transaction)
-      # Changing the result of this method will
-      # change the hash returned by the `import_id` which
-      # could will result in duplicated entries.
-
-      str = parse_transaction_at(0, transaction)
-      return nil unless str
-
-      str = str.encode('iso-8859-1').force_encoding('utf-8')
-      str[1..-1]
-    end
-
-    def parse_transaction_at(position, transaction)
-      # I don't know who invented this structure but I hope
-      # the responsible people know how inconvenient it is.
-
-      seperator = transaction.details.seperator
-      array = transaction.details.source.split("#{seperator}#{position}")
-      return nil if array.size < 2
-
-      array.last.split(seperator).first
-    end
   end
 end
